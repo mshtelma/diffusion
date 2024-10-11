@@ -4,9 +4,12 @@
 """Logger for generated images."""
 
 import gc
+import io
+import os
 from math import ceil
 from typing import List, Optional, Tuple, Union
 
+from PIL import Image
 import torch
 from composer import Callback, Logger, State
 from composer.core import TimeUnit, get_precision_context
@@ -175,8 +178,23 @@ class LogDiffusionImages(Callback):
             gen_images = torch.cat(all_gen_images)
 
         # Log images to wandb
+        from databricks.sdk import WorkspaceClient
+        import shutil
+
+        w = WorkspaceClient()
+        shutil.rmtree("/root/images", ignore_errors=True)
+        os.makedirs("/root/images", exist_ok=True)
+
         for prompt, image in zip(self.prompts, gen_images):
-            logger.log_images(images=image, name=prompt, step=state.timestamp.batch.value, use_table=self.use_table)
+            local_image_path = f'/root/images/{prompt}.jpg'
+            img = (image.permute(1, 2, 0).numpy() * 255).round().astype('uint8')
+            pil_image = Image.fromarray(img, 'RGB')
+            pil_image.save(local_image_path, 'JPEG')
+            with open(local_image_path, 'rb') as file:
+                file_bytes = file.read()
+                binary_data = io.BytesIO(file_bytes)
+                w.files.upload(f"/Volumes/workspace/nestle/ft_weights/{prompt}.jpg", binary_data, overwrite = True)
+        #logger.log_images(images=image, name=prompt, step=state.timestamp.batch.value, use_table=self.use_table)
 
 
 class LogAutoencoderImages(Callback):
