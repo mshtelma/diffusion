@@ -178,8 +178,7 @@ class LogDiffusionImages(Callback):
 
         # Log images to wandb
         for prompt, image in zip(self.prompts, gen_images):
-            prompt_title, prompt_text = prompt
-            logger.log_images(images=image, name=prompt_title, step=state.timestamp.batch.value,
+            logger.log_images(images=image, name=prompt["title"], step=state.timestamp.batch.value,
                               use_table=self.use_table)
 
 
