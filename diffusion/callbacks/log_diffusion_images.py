@@ -67,15 +67,21 @@ class LogDiffusionImages(Callback):
 
         # Batch prompts
         if prompts and isinstance(prompts[0], str):
-            self.prompts = [{"title":v, "prompt":v } for v in prompts]
+            print("Transforming prompts")
+            self.prompts = [{"title": v, "prompt": v} for v in prompts]
+            print(self.prompts)
         elif prompts and isinstance(prompts[0], dict):
+            print("prompts are already in dict!")
             self.prompts = prompts
+            print(self.prompts)
         else:
-            raise Exception(f"prompts must be either a list string prompts or a list of dictionaries containing prompts and titles!")
-        if num_images>1:
+            raise Exception(
+                f"Prompts must be either a list string prompts or a list of dictionaries containing prompts and titles!")
+        if num_images > 1:
             self.prompts = list(itertools.chain.from_iterable([[prompt] * num_images for prompt in prompts]))
-            for rec in self.prompts:
-                rec["title"] = rec["title"]+f"_N{random.randint(1, 1000)}"
+            self.prompts = [{"title": rec["title"] + f"_N{random.randint(1, 1000)}", "prompt": rec["prompt"]} for rec in
+                            self.prompts]
+            print(self.prompts)
         batch_size = len(self.prompts) if batch_size is None else batch_size
         num_batches = ceil(len(self.prompts) / batch_size)
         self.batched_prompts = []
