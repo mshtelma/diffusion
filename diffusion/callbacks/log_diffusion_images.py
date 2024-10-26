@@ -75,8 +75,10 @@ class LogDiffusionImages(Callback):
             self.prompts = prompts
             print(self.prompts)
         else:
+            print(prompts)
             raise Exception(
-                f"Prompts must be either a list string prompts or a list of dictionaries containing prompts and titles!")
+                f"Prompts must be either a list string prompts or a list of dictionaries containing prompts and titles!\n"
+                f"Current type: {type(prompts[0])}\n")
         if num_images > 1:
             self.prompts = list(itertools.chain.from_iterable([[prompt] * num_images for prompt in prompts]))
             self.prompts = [{"title": rec["title"] + f"_N{random.randint(1, 1000)}", "prompt": rec["prompt"]} for rec in
