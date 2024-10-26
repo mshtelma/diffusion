@@ -6,6 +6,7 @@
 import gc
 import itertools
 import random
+from collections.abc import Mapping
 from math import ceil
 from typing import List, Optional, Tuple, Union, Dict
 
@@ -14,7 +15,7 @@ from composer import Callback, Logger, State
 from composer.core import TimeUnit, get_precision_context
 from torch.nn.parallel import DistributedDataParallel
 from transformers import AutoModel, AutoTokenizer, CLIPTextModel
-
+from omegaconf.dictconfig import DictConfig
 
 class LogDiffusionImages(Callback):
     """Logs images generated from the evaluation prompts to a logger.
@@ -70,7 +71,7 @@ class LogDiffusionImages(Callback):
             print("Transforming prompts")
             self.prompts = [{"title": v, "prompt": v} for v in prompts]
             print(self.prompts)
-        elif prompts and isinstance(prompts[0], dict):
+        elif prompts and isinstance(prompts[0], (dict, Mapping, DictConfig)):
             print("prompts are already in dict!")
             self.prompts = prompts
             print(self.prompts)
