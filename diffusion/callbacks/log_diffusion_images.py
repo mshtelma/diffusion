@@ -4,6 +4,7 @@
 """Logger for generated images."""
 
 import gc
+import itertools
 from math import ceil
 from typing import List, Optional, Tuple, Union, Dict
 
@@ -45,6 +46,7 @@ class LogDiffusionImages(Callback):
     def __init__(self,
                  prompts: Union[List[str], List[Dict[str, str]]],
                  size: Union[Tuple[int, int], int] = 256,
+                 num_images: int = 1,
                  batch_size: Optional[int] = 1,
                  num_inference_steps: int = 50,
                  guidance_scale: float = 0.0,
@@ -64,6 +66,7 @@ class LogDiffusionImages(Callback):
         self.cache_dir = cache_dir
 
         # Batch prompts
+        self.prompts = list(itertools.chain.from_iterable([[prompt] * num_images for prompt in prompts]))
         batch_size = len(prompts) if batch_size is None else batch_size
         num_batches = ceil(len(prompts) / batch_size)
         self.batched_prompts = []
