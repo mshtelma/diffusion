@@ -70,13 +70,10 @@ class LogDiffusionImages(Callback):
         if prompts and isinstance(prompts[0], str):
             print("Transforming prompts")
             self.prompts = [{"title": v, "prompt": v} for v in prompts]
-            print(self.prompts)
         elif prompts and isinstance(prompts[0], (dict, Mapping, DictConfig)):
             print("prompts are already in dict!")
             self.prompts = prompts
-            print(self.prompts)
         else:
-            print(prompts)
             raise Exception(
                 f"Prompts must be either a list string prompts or a list of dictionaries containing prompts and titles!\n"
                 f"Current type: {type(prompts[0])}\n")
@@ -180,7 +177,7 @@ class LogDiffusionImages(Callback):
                                                 rescaled_guidance=self.rescaled_guidance,
                                                 progress_bar=False,
                                                 num_inference_steps=self.num_inference_steps,
-                                                seed=self.seed)
+                                                seed=random.randint(15,99))
                     all_gen_images.append(gen_images)
             else:
                 for batch in self.batched_prompts:
@@ -193,7 +190,7 @@ class LogDiffusionImages(Callback):
                         rescaled_guidance=self.rescaled_guidance,
                         progress_bar=False,
                         num_inference_steps=self.num_inference_steps,
-                        seed=self.seed)
+                        seed=random.randint(1,100))
                     all_gen_images.append(gen_images)
             gen_images = torch.cat(all_gen_images)
 
