@@ -5,6 +5,7 @@
 
 import gc
 import itertools
+import random
 from math import ceil
 from typing import List, Optional, Tuple, Union, Dict
 
@@ -44,7 +45,7 @@ class LogDiffusionImages(Callback):
     """
 
     def __init__(self,
-                 prompts: Union[List[str], List[Dict[str, str]]],
+                 prompts: Union[List[Dict[str, str]], List[str]],
                  size: Union[Tuple[int, int], int] = 256,
                  num_images: int = 1,
                  batch_size: Optional[int] = 1,
@@ -56,7 +57,6 @@ class LogDiffusionImages(Callback):
                  t5_encoder: Optional[str] = None,
                  clip_encoder: Optional[str] = None,
                  cache_dir: Optional[str] = '/tmp/hf_files'):
-        self.prompts = prompts
         self.size = (size, size) if isinstance(size, int) else size
         self.num_inference_steps = num_inference_steps
         self.guidance_scale = guidance_scale
@@ -66,13 +66,22 @@ class LogDiffusionImages(Callback):
         self.cache_dir = cache_dir
 
         # Batch prompts
-        self.prompts = list(itertools.chain.from_iterable([[prompt] * num_images for prompt in prompts]))
-        batch_size = len(prompts) if batch_size is None else batch_size
-        num_batches = ceil(len(prompts) / batch_size)
+        if prompts and isinstance(prompts[0], str):
+            self.prompts = [{"title":v, "prompt":v } for v in prompts]
+        elif prompts and isinstance(prompts[0], dict):
+            self.prompts = prompts
+        else:
+            raise Exception(f"prompts must be either a list string prompts or a list of dictionaries containing prompts and titles!")
+        if num_images>1:
+            self.prompts = list(itertools.chain.from_iterable([[prompt] * num_images for prompt in prompts]))
+            for rec in self.prompts:
+                rec["title"] = rec["title"]+f"_N{random.randint(1, 1000)}"
+        batch_size = len(self.prompts) if batch_size is None else batch_size
+        num_batches = ceil(len(self.prompts) / batch_size)
         self.batched_prompts = []
         for i in range(num_batches):
             start, end = i * batch_size, (i + 1) * batch_size
-            self.batched_prompts.append(prompts[start:end])
+            self.batched_prompts.append(self.prompts[start:end])
 
         if t5_encoder is not None and clip_encoder is None or t5_encoder is None and clip_encoder is not None:
             raise ValueError('Cannot specify only one of text encoder and CLIP encoder.')
