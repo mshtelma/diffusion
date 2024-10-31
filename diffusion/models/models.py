@@ -648,7 +648,7 @@ def precomputed_text_latent_diffusion(
             specified will default to SDXL values. Default: `None`.
         inference_noise_scheduler_params (Dict): Parameters to overried in the inference noise scheduler. Anything
             not specified will default to SDXL values. Default: `None`.
-        guidance_type (str): The type of guidance to use. Must be one of 'CFG', 'RCFG', or 'APG'. Default: `CFG`.
+        guidance_type (str): The type of guidance to use. Must be one of 'CFG', 'RCFG', 'APG', or 'SLERP'. Default: `CFG`.
         scheduler_shift_resolution (int): The resolution to shift the noise scheduler to. Default: `256`.
         train_metrics (list, optional): List of metrics to compute during training. If None, defaults to
             [MeanSquaredError()].

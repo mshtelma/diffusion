@@ -16,7 +16,8 @@ from torchmetrics import MeanSquaredError
 from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer
 
-from diffusion.schedulers.utils import AdaptiveProjectedGuidance, ClassifierFreeGuidance, RescaledClassifierFreeGuidance
+from diffusion.schedulers.utils import (AdaptiveProjectedGuidance, ClassifierFreeGuidance,
+                                        RescaledClassifierFreeGuidance, SLERPGuidance)
 
 try:
     import xformers  # type: ignore
@@ -42,7 +43,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
             noise scheduler. Used during the forward diffusion process (training).
         inference_scheduler (diffusers.SchedulerMixin): HuggingFace diffusers
             noise scheduler. Used during the backward diffusion process (inference).
-        guidance_type (str): The type of guidance to use. Must be one of 'CFG', 'RCFG', or 'APG'. Default: `CFG`.
+        guidance_type (str): The type of guidance to use. Must be one of 'CFG', 'RCFG', 'APG', or 'SLERP'. Default: `CFG`.
         t5_tokenizer (Optional): Tokenizer for T5. Should only be specified during inference. Default: `None`.
         t5_encoder (Optional): T5 text encoder. Should only be specified during inference. Default: `None`.
         clip_tokenizer (Optional): Tokenizer for CLIP. Should only be specified during inference. Default: `None`.
@@ -131,8 +132,8 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         self.val_metrics = val_metrics if val_metrics is not None else [MeanSquaredError()]
         self.inference_scheduler = inference_noise_scheduler
         self.guidance_type = guidance_type
-        if self.guidance_type not in ['CFG', 'RCFG', 'APG']:
-            raise ValueError(f'guidance type must be one of CFG, RCFG, or APG. Got {guidance_type}')
+        if self.guidance_type not in ['CFG', 'RCFG', 'APG', 'SLERP']:
+            raise ValueError(f'guidance type must be one of CFG, RCFG, APG, or SLERP. Got {guidance_type}')
         # freeze VAE during diffusion training
         self.vae.requires_grad_(False)
         self.vae = self.vae.bfloat16()
@@ -492,8 +493,10 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
                 guidance = RescaledClassifierFreeGuidance(guidance_scale, rescaled_guidance)
         elif self.guidance_type == 'APG':
             guidance = AdaptiveProjectedGuidance(guidance_scale)
+        elif self.guidance_type == 'SLERP':
+            guidance = SLERPGuidance(guidance_scale)
         else:
-            raise ValueError(f'guidance type must be one of CFG, RCFG, or APG. Got {self.guidance_type}')
+            raise ValueError(f'guidance type must be one of CFG, RCFG, APG, or SLERP. Got {self.guidance_type}')
 
         # backward diffusion process
         for t in tqdm(self.inference_scheduler.timesteps, disable=not progress_bar):

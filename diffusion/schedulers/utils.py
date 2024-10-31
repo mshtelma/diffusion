@@ -130,3 +130,34 @@ class AdaptiveProjectedGuidance:
                                 2.5 / torch.sqrt(torch.sum(dt * dt, tuple(range(1, dt.dim())), keepdim=True)))
         self.dt_beta = dt - 0.75 * self.dt_beta
         return cond_output + (self.guidance_scale - 1) * self.dt_beta
+
+
+class SLERPGuidance:
+    """Implements spherical linear interpolation (SLERP) as an alternative to CFG.
+
+    Args:
+        guidance_scale (float): The scale of the guidance.
+    """
+
+    def __init__(self, guidance_scale: float):
+        self.guidance_scale = guidance_scale
+
+    def perform_guidance(self, cond_output: torch.Tensor, uncond_output: torch.Tensor) -> torch.Tensor:
+        """A function that performs spherical linear interpolation given a conditional and unconditional output.
+
+        Args:
+            cond_output (torch.Tensor): The conditional output.
+            uncond_output (torch.Tensor): The unconditional output.
+
+        Returns:
+            torch.Tensor: The guided output.
+        """
+        cond_norm = torch.sqrt(torch.square(cond_output).sum(dim=tuple(range(1, cond_output.dim())), keepdim=True))
+        uncond_norm = torch.sqrt(
+            torch.square(uncond_output).sum(dim=tuple(range(1, uncond_output.dim())), keepdim=True))
+        cond = cond_output / cond_norm
+        uncond = uncond_output / uncond_norm
+        angle = torch.arccos((cond * uncond).sum(dim=tuple(range(1, cond.dim())), keepdim=True))
+        unit_pred = torch.sin((1 - self.guidance_scale) * angle) / torch.sin(angle) * uncond + torch.sin(
+            self.guidance_scale * angle) / torch.sin(angle) * cond
+        return unit_pred * cond_norm
