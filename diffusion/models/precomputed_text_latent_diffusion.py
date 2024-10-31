@@ -16,6 +16,8 @@ from torchmetrics import MeanSquaredError
 from tqdm.auto import tqdm
 from transformers import PreTrainedTokenizer
 
+from diffusion.schedulers.utils import AdaptiveProjectedGuidance, ClassifierFreeGuidance, RescaledClassifierFreeGuidance
+
 try:
     import xformers  # type: ignore
     del xformers
@@ -40,6 +42,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
             noise scheduler. Used during the forward diffusion process (training).
         inference_scheduler (diffusers.SchedulerMixin): HuggingFace diffusers
             noise scheduler. Used during the backward diffusion process (inference).
+        guidance_type (str): The type of guidance to use. Must be one of 'CFG', 'RCFG', or 'APG'. Default: `CFG`.
         t5_tokenizer (Optional): Tokenizer for T5. Should only be specified during inference. Default: `None`.
         t5_encoder (Optional): T5 text encoder. Should only be specified during inference. Default: `None`.
         clip_tokenizer (Optional): Tokenizer for CLIP. Should only be specified during inference. Default: `None`.
@@ -76,6 +79,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         vae,
         noise_scheduler,
         inference_noise_scheduler,
+        guidance_type: str = 'CFG',
         t5_tokenizer: Optional[PreTrainedTokenizer] = None,
         t5_encoder: Optional[torch.nn.Module] = None,
         clip_tokenizer: Optional[PreTrainedTokenizer] = None,
@@ -126,6 +130,9 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         self.train_metrics = train_metrics if train_metrics is not None else [MeanSquaredError()]
         self.val_metrics = val_metrics if val_metrics is not None else [MeanSquaredError()]
         self.inference_scheduler = inference_noise_scheduler
+        self.guidance_type = guidance_type
+        if self.guidance_type not in ['CFG', 'RCFG', 'APG']:
+            raise ValueError(f'guidance type must be one of CFG, RCFG, or APG. Got {guidance_type}')
         # freeze VAE during diffusion training
         self.vae.requires_grad_(False)
         self.vae = self.vae.bfloat16()
@@ -475,6 +482,19 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         add_time_ids = torch.cat([input_size_params, crop_params, output_size_params], dim=1).to(device)
         added_cond_kwargs = {'text_embeds': pooled_embeddings, 'time_ids': add_time_ids}
 
+        # Prep for guidance
+        if self.guidance_type == 'CFG':
+            guidance = ClassifierFreeGuidance(guidance_scale)
+        elif self.guidance_type == 'RCFG':
+            if rescaled_guidance is None:
+                guidance = RescaledClassifierFreeGuidance(guidance_scale)
+            else:
+                guidance = RescaledClassifierFreeGuidance(guidance_scale, rescaled_guidance)
+        elif self.guidance_type == 'APG':
+            guidance = AdaptiveProjectedGuidance(guidance_scale)
+        else:
+            raise ValueError(f'guidance type must be one of CFG, RCFG, or APG. Got {self.guidance_type}')
+
         # backward diffusion process
         for t in tqdm(self.inference_scheduler.timesteps, disable=not progress_bar):
             latent_model_input = torch.cat([latents] * 2)
@@ -490,13 +510,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
 
             # perform guidance. Note this is only techincally correct for prediction_type 'epsilon'
             pred_uncond, pred_text = pred.chunk(2)
-            pred = pred_uncond + guidance_scale * (pred_text - pred_uncond)
-            # Optionally rescale the classifer free guidance
-            if rescaled_guidance is not None:
-                std_pos = torch.std(pred_text, dim=(1, 2, 3), keepdim=True)
-                std_cfg = torch.std(pred, dim=(1, 2, 3), keepdim=True)
-                pred_rescaled = pred * (std_pos / std_cfg)
-                pred = pred_rescaled * rescaled_guidance + pred * (1 - rescaled_guidance)
+            pred = guidance.perform_guidance(pred_text, pred_uncond)
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.inference_scheduler.step(pred, t, latents, generator=rng_generator).prev_sample
 
