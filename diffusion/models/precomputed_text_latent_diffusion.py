@@ -343,6 +343,8 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         num_inference_steps: int = 50,
         guidance_scale: float = 3.0,
         rescaled_guidance: Optional[float] = None,
+        sigma_high: Optional[float] = None,
+        sigma_low: float = 0.0,
         num_images_per_prompt: int = 1,
         seed: Optional[int] = None,
         progress_bar: bool = True,
@@ -388,6 +390,10 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
                 Default: `3.0`.
             rescaled_guidance (float, optional): Rescaled guidance scale. If not specified, rescaled guidance will
                 not be used. Default: `None`.
+            sigma_high (float, optional): Maximum sigma value below which to use guidance. If not specificed, will
+                always use guidance. Default: `None`.
+            sigma_low (float): Minimum sigma value for guidance. Will not use guidance below this value.
+                Default: `0.0`.
             num_images_per_prompt (int): The number of images to generate per prompt.
                  Default: `1`.
             progress_bar (bool): Whether to use the tqdm progress bar during generation.
@@ -450,9 +456,9 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
             neg_prompt_mask = _duplicate_tensor(neg_prompt_mask, num_images_per_prompt)
 
         # concat uncond + prompt
-        text_embeddings = torch.cat([neg_prompt_embeds, text_embeddings])
-        pooled_embeddings = torch.cat([pooled_neg_prompt, pooled_embeddings])
-        encoder_attn_mask = torch.cat([neg_prompt_mask, encoder_attn_mask])
+        text_embeddings_combined = torch.cat([neg_prompt_embeds, text_embeddings])
+        pooled_embeddings_combined = torch.cat([pooled_neg_prompt, pooled_embeddings])
+        encoder_attn_mask_combined = torch.cat([neg_prompt_mask, encoder_attn_mask])
 
         # prepare for diffusion generation process
         latents = torch.randn(
@@ -467,21 +473,22 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         # scale the initial noise by the standard deviation required by the scheduler
         latents = latents * self.inference_scheduler.init_noise_sigma
 
-        added_cond_kwargs = {}
-        # if using SDXL, prepare added time ids & embeddings
-
+        # if needed, prepare added time ids & embeddings
         if crop_params is None:
             crop_params = torch.zeros((batch_size, 2), dtype=text_embeddings.dtype)
         if input_size_params is None:
             input_size_params = torch.tensor([[width, height]] * batch_size, dtype=text_embeddings.dtype)
         output_size_params = torch.tensor([[width, height]] * batch_size, dtype=text_embeddings.dtype)
 
-        crop_params = torch.cat([crop_params, crop_params])
-        input_size_params = torch.cat([input_size_params, input_size_params])
-        output_size_params = torch.cat([output_size_params, output_size_params])
+        crop_params_combined = torch.cat([crop_params, crop_params])
+        input_size_params_combined = torch.cat([input_size_params, input_size_params])
+        output_size_params_combined = torch.cat([output_size_params, output_size_params])
 
         add_time_ids = torch.cat([input_size_params, crop_params, output_size_params], dim=1).to(device)
+        add_time_ids_combined = torch.cat(
+            [input_size_params_combined, crop_params_combined, output_size_params_combined], dim=1).to(device)
         added_cond_kwargs = {'text_embeds': pooled_embeddings, 'time_ids': add_time_ids}
+        added_cond_kwargs_combined = {'text_embeds': pooled_embeddings_combined, 'time_ids': add_time_ids_combined}
 
         # Prep for guidance
         if self.guidance_type == 'CFG':
@@ -500,20 +507,31 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
 
         # backward diffusion process
         for t in tqdm(self.inference_scheduler.timesteps, disable=not progress_bar):
-            latent_model_input = torch.cat([latents] * 2)
-            latent_model_input = self.inference_scheduler.scale_model_input(latent_model_input, t)
-            # Make timestep
-            timestep = t.unsqueeze(0).repeat(latent_model_input.shape[0]).to(device)
-            # Model prediction
-            pred = self.unet(latent_model_input,
-                             timestep,
-                             encoder_hidden_states=text_embeddings,
-                             encoder_attention_mask=encoder_attn_mask,
-                             added_cond_kwargs=added_cond_kwargs).sample
+            sigma = self.inference_scheduler.sigmas[t]
+            if sigma_high is None or sigma >= sigma_low and sigma < sigma_high:
+                # Use guidance for these timesteps
+                latent_model_input = torch.cat([latents] * 2)
+                latent_model_input = self.inference_scheduler.scale_model_input(latent_model_input, t)
+                # Make timestep
+                timestep = t.unsqueeze(0).repeat(latent_model_input.shape[0]).to(device)
+                # Model prediction
+                pred = self.unet(latent_model_input,
+                                 timestep,
+                                 encoder_hidden_states=text_embeddings_combined,
+                                 encoder_attention_mask=encoder_attn_mask_combined,
+                                 added_cond_kwargs=added_cond_kwargs_combined).sample
+                # Perform guidance.
+                pred_uncond, pred_text = pred.chunk(2)
+                pred = guidance.perform_guidance(pred_text, pred_uncond)
+            else:
+                # Turn off guidance for these timesteps
+                timestep = t.unsqueeze(0).repeat(latents.shape[0]).to(device)
+                pred = self.unet(latents,
+                                 timestep,
+                                 encoder_hidden_states=text_embeddings,
+                                 encoder_attention_mask=encoder_attn_mask,
+                                 added_cond_kwargs=added_cond_kwargs).sample
 
-            # perform guidance. Note this is only techincally correct for prediction_type 'epsilon'
-            pred_uncond, pred_text = pred.chunk(2)
-            pred = guidance.perform_guidance(pred_text, pred_uncond)
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.inference_scheduler.step(pred, t, latents, generator=rng_generator).prev_sample
 
