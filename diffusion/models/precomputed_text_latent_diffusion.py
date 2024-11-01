@@ -506,8 +506,8 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
             raise ValueError(f'guidance type must be one of CFG, RCFG, APG, or SLERP. Got {self.guidance_type}')
 
         # backward diffusion process
-        for t in tqdm(self.inference_scheduler.timesteps, disable=not progress_bar):
-            sigma = self.inference_scheduler.sigmas[t]
+        for i, t in enumerate(tqdm(self.inference_scheduler.timesteps, disable=not progress_bar)):
+            sigma = self.inference_scheduler.sigmas[i]
             if sigma_high is None or sigma >= sigma_low and sigma < sigma_high:
                 # Use guidance for these timesteps
                 latent_model_input = torch.cat([latents] * 2)
