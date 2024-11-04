@@ -526,6 +526,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
             else:
                 # Turn off guidance for these timesteps
                 timestep = t.unsqueeze(0).repeat(latents.shape[0]).to(device)
+                latents = self.inference_scheduler.scale_model_input(latents, t)
                 pred = self.unet(latents,
                                  timestep,
                                  encoder_hidden_states=text_embeddings,
