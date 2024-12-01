@@ -8,7 +8,6 @@ import math
 from typing import List, Optional, Tuple, Union
 
 import torch
-from composer.devices import DeviceGPU
 from diffusers import AutoencoderKL, DDIMScheduler, DDPMScheduler, EulerDiscreteScheduler, UNet2DConditionModel
 from peft import LoraConfig
 from torchmetrics import MeanSquaredError
@@ -43,6 +42,7 @@ def _parse_latent_statistics(latent_stat: Union[float, Tuple, str]) -> Union[flo
     elif type(latent_stat).__name__ == 'ListConfig' and not isinstance(latent_stat, float):
         latent_stat = tuple(latent_stat)
     return latent_stat
+
 
 
 def stable_diffusion_2(
@@ -255,7 +255,7 @@ def stable_diffusion_2(
                     resnet._fsdp_wrap = True
 
     if torch.cuda.is_available():
-        model = DeviceGPU().module_to_device(model)
+        model = model.to("cuda:0") #DeviceGPU().module_to_device(model)
         if is_xformers_installed and use_xformers:
             model.unet.enable_xformers_memory_efficient_attention()
             if hasattr(model.vae, 'enable_xformers_memory_efficient_attention'):
@@ -563,7 +563,7 @@ def stable_diffusion_xl(
                 for resnet in block.resnets:
                     resnet._fsdp_wrap = True
     if torch.cuda.is_available():
-        model = DeviceGPU().module_to_device(model)
+        model = model.to("cuda:0") #DeviceGPU().module_to_device(model)
         if is_xformers_installed and use_xformers:
             model.unet.enable_xformers_memory_efficient_attention()
             if hasattr(model.vae, 'enable_xformers_memory_efficient_attention'):
@@ -705,7 +705,7 @@ def text_to_image_transformer(
                                      caption_mask_key=caption_mask_key)
 
     if torch.cuda.is_available():
-        model = DeviceGPU().module_to_device(model)
+        model = model.to("cuda:0") #DeviceGPU().module_to_device(model)
     return model
 
 
@@ -901,7 +901,7 @@ def discrete_pixel_diffusion(clip_model_name: str = 'openai/clip-vit-large-patch
                            val_metrics=[MeanSquaredError()])
 
     if torch.cuda.is_available():
-        model = DeviceGPU().module_to_device(model)
+        model = model.to("cuda:0") #DeviceGPU().module_to_device(model)
         if is_xformers_installed:
             model.model.enable_xformers_memory_efficient_attention()
     return model
@@ -956,7 +956,7 @@ def continuous_pixel_diffusion(clip_model_name: str = 'openai/clip-vit-large-pat
                            val_metrics=[MeanSquaredError()])
 
     if torch.cuda.is_available():
-        model = DeviceGPU().module_to_device(model)
+        model = model.to("cuda:0") #DeviceGPU().module_to_device(model)
         if is_xformers_installed:
             model.model.enable_xformers_memory_efficient_attention()
     return model
