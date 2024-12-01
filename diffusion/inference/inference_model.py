@@ -8,7 +8,6 @@ import io
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from composer.utils.file_helpers import get_file
 from PIL import Image
 
 import diffusion.models
@@ -16,15 +15,6 @@ from diffusion.models import stable_diffusion_2, stable_diffusion_xl
 
 # Local checkpoint params
 LOCAL_CHECKPOINT_PATH = '/tmp/model.pt'
-
-
-def download_checkpoint(chkpt_path: str):
-    """Downloads the Stable Diffusion checkpoint to the local filesystem.
-
-    Args:
-        chkpt_path (str): The path to the local folder, URL or object score that contains the checkpoint.
-    """
-    get_file(path=chkpt_path, destination=LOCAL_CHECKPOINT_PATH)
 
 
 class StableDiffusionInference():
