@@ -305,6 +305,7 @@ def stable_diffusion_xl(
     use_xformers: bool = True,
     lora_rank: Optional[int] = None,
     lora_alpha: Optional[int] = None,
+    device: Optional[str] = None,
 ):
     """Stable diffusion 2 training setup + SDXL UNet and VAE.
 
@@ -563,7 +564,10 @@ def stable_diffusion_xl(
                 for resnet in block.resnets:
                     resnet._fsdp_wrap = True
     if torch.cuda.is_available():
-        model = model.to("cuda:0") #DeviceGPU().module_to_device(model)
+        if device and device.startswith('cuda'):
+            model = model.to(device) #DeviceGPU().module_to_device(model)
+        else:
+            raise Exception(f"Unknown CUDA device: {device}")
         if is_xformers_installed and use_xformers:
             model.unet.enable_xformers_memory_efficient_attention()
             if hasattr(model.vae, 'enable_xformers_memory_efficient_attention'):

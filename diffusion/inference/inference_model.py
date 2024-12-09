@@ -142,8 +142,9 @@ class StableDiffusionXLInference():
                  pretrained: bool = False,
                  prediction_type: str = 'epsilon',
                  local_checkpoint_path: str = LOCAL_CHECKPOINT_PATH,
+                 device:Optional[str] = None,
                  **kwargs):
-        self.device = torch.cuda.current_device()
+        #self.device = torch.cuda.current_device()
 
         model = stable_diffusion_xl(
             tokenizer_names=tokenizer_names,
@@ -155,6 +156,7 @@ class StableDiffusionXLInference():
             prediction_type=prediction_type,
             encode_latents_in_fp16=True,
             fsdp=False,
+            device=device,
             **kwargs,
         )
 
@@ -164,7 +166,7 @@ class StableDiffusionXLInference():
                 if 'val_metrics.' in key:
                     del state_dict['state']['model'][key]
             model.load_state_dict(state_dict['state']['model'], strict=False)
-        model.to(self.device)
+        model.to(device)
         self.model = model.eval()
 
     def predict(self, model_requests: List[Dict[str, Any]]):
