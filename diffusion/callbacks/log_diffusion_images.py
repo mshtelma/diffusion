@@ -104,6 +104,11 @@ class LogDiffusionImages(Callback):
         batch_size = len(self.prompts) if batch_size is None else batch_size
         num_batches = ceil(len(self.prompts) / batch_size)
 
+        self.batched_prompts = []
+        for i in range(num_batches):
+            start, end = i * batch_size, (i + 1) * batch_size
+            self.batched_prompts.append(prompts[start:end])
+
         if t5_encoder is not None and clip_encoder is None or t5_encoder is None and clip_encoder is not None:
             raise ValueError('Cannot specify only one of text encoder and CLIP encoder.')
 
