@@ -4,7 +4,9 @@
 """Logger for generated images."""
 
 import gc
+import itertools
 from math import ceil
+import random
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -12,6 +14,7 @@ from composer import Callback, Logger, State
 from composer.core import TimeUnit, get_precision_context
 from torch.nn.parallel import DistributedDataParallel
 from transformers import AutoModel, AutoTokenizer, CLIPTextModel
+from omegaconf.dictconfig import DictConfig
 
 
 class LogDiffusionImages(Callback):
@@ -49,8 +52,9 @@ class LogDiffusionImages(Callback):
     """
 
     def __init__(self,
-                 prompts: List[str],
+                 prompts: list[dict[str, str]] | list[str],
                  size: Union[Tuple[int, int], int] = 256,
+                 num_images: int = 1,
                  batch_size: Optional[int] = 1,
                  num_inference_steps: int = 50,
                  guidance_scale: float = 0.0,
@@ -82,12 +86,23 @@ class LogDiffusionImages(Callback):
         self.cache_dir = cache_dir
 
         # Batch prompts
-        batch_size = len(prompts) if batch_size is None else batch_size
-        num_batches = ceil(len(prompts) / batch_size)
-        self.batched_prompts = []
-        for i in range(num_batches):
-            start, end = i * batch_size, (i + 1) * batch_size
-            self.batched_prompts.append(prompts[start:end])
+        if prompts and isinstance(prompts[0], str):
+            print("Transforming prompts")
+            self.prompts = [{"title": v, "prompt": v} for v in prompts]
+        elif prompts and isinstance(prompts[0], (dict, DictConfig)):
+            print("prompts are already in dict!")
+            self.prompts = prompts
+        else:
+            raise Exception(
+                f"Prompts must be either a list string prompts or a list of dictionaries containing prompts and titles!\n"
+                f"Current type: {type(prompts[0])}\n")
+        if num_images > 1:
+            self.prompts = list(itertools.chain.from_iterable([[prompt] * num_images for prompt in prompts]))
+            self.prompts = [{"title": rec["title"] + f"_N{random.randint(1, 1000)}", "prompt": rec["prompt"]} for rec in
+                            self.prompts]
+            print(self.prompts)
+        batch_size = len(self.prompts) if batch_size is None else batch_size
+        num_batches = ceil(len(self.prompts) / batch_size)
 
         if t5_encoder is not None and clip_encoder is None or t5_encoder is None and clip_encoder is not None:
             raise ValueError('Cannot specify only one of text encoder and CLIP encoder.')
@@ -113,8 +128,9 @@ class LogDiffusionImages(Callback):
                                                        local_files_only=True).cuda().eval()
             with torch.no_grad():
                 for batch in self.batched_prompts:
+                    pure_prompts = [r["prompt"] for r in batch]
                     latent_batch = {}
-                    tokenized_t5 = t5_tokenizer(batch,
+                    tokenized_t5 = t5_tokenizer(pure_prompts,
                                                 padding='max_length',
                                                 max_length=t5_tokenizer.model_max_length,
                                                 truncation=True,
@@ -124,7 +140,7 @@ class LogDiffusionImages(Callback):
                     t5_latents = t5_model(input_ids=t5_ids, attention_mask=t5_attention_mask)[0].cpu()
                     t5_attention_mask = t5_attention_mask.cpu().to(torch.long)
 
-                    tokenized_clip = clip_tokenizer(batch,
+                    tokenized_clip = clip_tokenizer(pure_prompts,
                                                     padding='max_length',
                                                     max_length=clip_tokenizer.model_max_length,
                                                     truncation=True,
@@ -199,8 +215,9 @@ class LogDiffusionImages(Callback):
                     torch.cuda.empty_cache()
             else:
                 for batch in self.batched_prompts:
+                    pure_prompts = [r["prompt"] for r in batch]
                     gen_images = model.generate(
-                        prompt=batch,  # type: ignore
+                        prompt=pure_prompts,  # type: ignore
                         height=self.size[0],
                         width=self.size[1],
                         guidance_scale=self.guidance_scale,
@@ -213,7 +230,7 @@ class LogDiffusionImages(Callback):
 
         # Log images to wandb
         for prompt, image in zip(self.prompts, gen_images):
-            logger.log_images(images=image, name=prompt, step=state.timestamp.batch.value, use_table=self.use_table)
+            logger.log_images(images=image, name=prompt["title"], step=state.timestamp.batch.value, use_table=self.use_table)
 
 
 class LogAutoencoderImages(Callback):
