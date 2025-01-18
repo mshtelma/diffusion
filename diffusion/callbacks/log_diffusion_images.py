@@ -4,7 +4,9 @@
 """Logger for generated images."""
 
 import gc
+import itertools
 from math import ceil
+import random
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -12,6 +14,7 @@ from composer import Callback, Logger, State
 from composer.core import TimeUnit, get_precision_context
 from torch.nn.parallel import DistributedDataParallel
 from transformers import AutoModel, AutoTokenizer, CLIPTextModel
+from omegaconf.dictconfig import DictConfig
 
 
 class LogDiffusionImages(Callback):
@@ -37,6 +40,7 @@ class LogDiffusionImages(Callback):
         seed (int, optional): Random seed to use for generation. Set a seed for reproducible generation.
             Default: ``1138``.
         use_table (bool): Whether to make a table of the images or not. Default: ``False``.
+        use_mask (bool): Whether or not to use the mask for the encoded text. Default: ``True``.
         t5_encoder (str, optional): path to the T5 encoder to as a second text encoder.
         clip_encoder (str, optional): path to the CLIP encoder as the first text encoder.
         t5_latent_key: (str): key to use for the T5 latents in the batch. Default: ``'T5_LATENTS'``.
@@ -48,14 +52,16 @@ class LogDiffusionImages(Callback):
     """
 
     def __init__(self,
-                 prompts: List[str],
+                 prompts: list[dict[str, str]] | list[str],
                  size: Union[Tuple[int, int], int] = 256,
+                 num_images: int = 1,
                  batch_size: Optional[int] = 1,
                  num_inference_steps: int = 50,
                  guidance_scale: float = 0.0,
                  rescaled_guidance: Optional[float] = None,
                  seed: Optional[int] = 1138,
                  use_table: bool = False,
+                 use_mask: bool = True,
                  t5_encoder: Optional[str] = None,
                  clip_encoder: Optional[str] = None,
                  t5_latent_key: str = 'T5_LATENTS',
@@ -71,6 +77,7 @@ class LogDiffusionImages(Callback):
         self.rescaled_guidance = rescaled_guidance
         self.seed = seed
         self.use_table = use_table
+        self.use_mask = use_mask
         self.t5_latent_key = t5_latent_key
         self.t5_mask_key = t5_mask_key
         self.clip_latent_key = clip_latent_key
@@ -79,8 +86,24 @@ class LogDiffusionImages(Callback):
         self.cache_dir = cache_dir
 
         # Batch prompts
-        batch_size = len(prompts) if batch_size is None else batch_size
-        num_batches = ceil(len(prompts) / batch_size)
+        if prompts and isinstance(prompts[0], str):
+            print("Transforming prompts")
+            self.prompts = [{"title": v, "prompt": v} for v in prompts]
+        elif prompts and isinstance(prompts[0], (dict, DictConfig)):
+            print("prompts are already in dict!")
+            self.prompts = prompts
+        else:
+            raise Exception(
+                f"Prompts must be either a list string prompts or a list of dictionaries containing prompts and titles!\n"
+                f"Current type: {type(prompts[0])}\n")
+        if num_images > 1:
+            self.prompts = list(itertools.chain.from_iterable([[prompt] * num_images for prompt in prompts]))
+            self.prompts = [{"title": rec["title"] + f"_N{random.randint(1, 1000)}", "prompt": rec["prompt"]} for rec in
+                            self.prompts]
+            print(self.prompts)
+        batch_size = len(self.prompts) if batch_size is None else batch_size
+        num_batches = ceil(len(self.prompts) / batch_size)
+
         self.batched_prompts = []
         for i in range(num_batches):
             start, end = i * batch_size, (i + 1) * batch_size
@@ -100,47 +123,48 @@ class LogDiffusionImages(Callback):
                                                            local_files_only=True)
 
             t5_model = AutoModel.from_pretrained(t5_encoder,
-                                                 torch_dtype=torch.float16,
+                                                 torch_dtype=torch.bfloat16,
                                                  cache_dir=self.cache_dir,
                                                  local_files_only=True).encoder.cuda().eval()
             clip_model = CLIPTextModel.from_pretrained(clip_encoder,
                                                        subfolder='text_encoder',
-                                                       torch_dtype=torch.float16,
+                                                       torch_dtype=torch.bfloat16,
                                                        cache_dir=self.cache_dir,
                                                        local_files_only=True).cuda().eval()
-
-            for batch in self.batched_prompts:
-                latent_batch = {}
-                tokenized_t5 = t5_tokenizer(batch,
-                                            padding='max_length',
-                                            max_length=t5_tokenizer.model_max_length,
-                                            truncation=True,
-                                            return_tensors='pt')
-                t5_attention_mask = tokenized_t5['attention_mask'].to(torch.bool).cuda()
-                t5_ids = tokenized_t5['input_ids'].cuda()
-                t5_latents = t5_model(input_ids=t5_ids, attention_mask=t5_attention_mask)[0].cpu()
-                t5_attention_mask = t5_attention_mask.cpu().to(torch.long)
-
-                tokenized_clip = clip_tokenizer(batch,
+            with torch.no_grad():
+                for batch in self.batched_prompts:
+                    pure_prompts = [r["prompt"] for r in batch]
+                    latent_batch = {}
+                    tokenized_t5 = t5_tokenizer(pure_prompts,
                                                 padding='max_length',
-                                                max_length=clip_tokenizer.model_max_length,
+                                                max_length=t5_tokenizer.model_max_length,
                                                 truncation=True,
                                                 return_tensors='pt')
-                clip_attention_mask = tokenized_clip['attention_mask'].cuda()
-                clip_ids = tokenized_clip['input_ids'].cuda()
-                clip_outputs = clip_model(input_ids=clip_ids,
-                                          attention_mask=clip_attention_mask,
-                                          output_hidden_states=True)
-                clip_latents = clip_outputs.hidden_states[-2].cpu()
-                clip_pooled = clip_outputs[1].cpu()
-                clip_attention_mask = clip_attention_mask.cpu().to(torch.long)
+                    t5_attention_mask = tokenized_t5['attention_mask'].to(torch.bool).cuda()
+                    t5_ids = tokenized_t5['input_ids'].cuda()
+                    t5_latents = t5_model(input_ids=t5_ids, attention_mask=t5_attention_mask)[0].cpu()
+                    t5_attention_mask = t5_attention_mask.cpu().to(torch.long)
 
-                latent_batch[self.t5_latent_key] = t5_latents
-                latent_batch[self.t5_mask_key] = t5_attention_mask
-                latent_batch[self.clip_latent_key] = clip_latents
-                latent_batch[self.clip_mask_key] = clip_attention_mask
-                latent_batch[self.clip_pooled_key] = clip_pooled
-                self.batched_latents.append(latent_batch)
+                    tokenized_clip = clip_tokenizer(pure_prompts,
+                                                    padding='max_length',
+                                                    max_length=clip_tokenizer.model_max_length,
+                                                    truncation=True,
+                                                    return_tensors='pt')
+                    clip_attention_mask = tokenized_clip['attention_mask'].cuda()
+                    clip_ids = tokenized_clip['input_ids'].cuda()
+                    clip_outputs = clip_model(input_ids=clip_ids,
+                                              attention_mask=clip_attention_mask,
+                                              output_hidden_states=True)
+                    clip_latents = clip_outputs.hidden_states[-2].cpu()
+                    clip_pooled = clip_outputs[1].cpu()
+                    clip_attention_mask = clip_attention_mask.cpu().to(torch.long)
+
+                    latent_batch[self.t5_latent_key] = t5_latents
+                    latent_batch[self.t5_mask_key] = t5_attention_mask
+                    latent_batch[self.clip_latent_key] = clip_latents
+                    latent_batch[self.clip_mask_key] = clip_attention_mask
+                    latent_batch[self.clip_pooled_key] = clip_pooled
+                    self.batched_latents.append(latent_batch)
 
             del t5_model
             del clip_model
@@ -160,25 +184,45 @@ class LogDiffusionImages(Callback):
             if self.precomputed_latents:
                 for batch in self.batched_latents:
                     pooled_prompt = batch[self.clip_pooled_key].cuda()
-                    prompt_embeds, prompt_mask = model.prepare_text_embeddings(batch[self.t5_latent_key].cuda(),
-                                                                               batch[self.clip_latent_key].cuda(),
-                                                                               batch[self.t5_mask_key].cuda(),
-                                                                               batch[self.clip_mask_key].cuda())
-                    gen_images = model.generate(prompt_embeds=prompt_embeds,
-                                                pooled_prompt=pooled_prompt,
-                                                prompt_mask=prompt_mask,
-                                                height=self.size[0],
-                                                width=self.size[1],
-                                                guidance_scale=self.guidance_scale,
-                                                rescaled_guidance=self.rescaled_guidance,
-                                                progress_bar=False,
-                                                num_inference_steps=self.num_inference_steps,
-                                                seed=self.seed)
+                    if self.use_mask:
+                        prompt_embeds, prompt_mask = model.prepare_text_embeddings(batch[self.t5_latent_key].cuda(),
+                                                                                   batch[self.clip_latent_key].cuda(),
+                                                                                   batch[self.t5_mask_key].cuda(),
+                                                                                   batch[self.clip_mask_key].cuda())
+                        gen_images = model.generate(prompt_embeds=prompt_embeds,
+                                                    pooled_prompt=pooled_prompt,
+                                                    prompt_mask=prompt_mask,
+                                                    height=self.size[0],
+                                                    width=self.size[1],
+                                                    guidance_scale=self.guidance_scale,
+                                                    rescaled_guidance=self.rescaled_guidance,
+                                                    progress_bar=False,
+                                                    num_inference_steps=self.num_inference_steps,
+                                                    seed=self.seed)
+                    else:
+                        prompt_embeds = model.prepare_text_embeddings(batch[self.t5_latent_key].cuda(),
+                                                                      batch[self.clip_latent_key].cuda())
+                        gen_images = model.generate(prompt_embeds=prompt_embeds,
+                                                    pooled_prompt=pooled_prompt,
+                                                    height=self.size[0],
+                                                    width=self.size[1],
+                                                    guidance_scale=self.guidance_scale,
+                                                    rescaled_guidance=self.rescaled_guidance,
+                                                    progress_bar=False,
+                                                    num_inference_steps=self.num_inference_steps,
+                                                    seed=self.seed)
                     all_gen_images.append(gen_images)
+                    # Clear up GPU tensors
+                    del pooled_prompt
+                    del prompt_embeds
+                    if self.use_mask:
+                        del prompt_mask
+                    torch.cuda.empty_cache()
             else:
                 for batch in self.batched_prompts:
+                    pure_prompts = [r["prompt"] for r in batch]
                     gen_images = model.generate(
-                        prompt=batch,  # type: ignore
+                        prompt=pure_prompts,  # type: ignore
                         height=self.size[0],
                         width=self.size[1],
                         guidance_scale=self.guidance_scale,
@@ -191,7 +235,7 @@ class LogDiffusionImages(Callback):
 
         # Log images to wandb
         for prompt, image in zip(self.prompts, gen_images):
-            logger.log_images(images=image, name=prompt, step=state.timestamp.batch.value, use_table=self.use_table)
+            logger.log_images(images=image, name=prompt["title"], step=state.timestamp.batch.value, use_table=self.use_table)
 
 
 class LogAutoencoderImages(Callback):
