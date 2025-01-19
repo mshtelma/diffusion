@@ -64,6 +64,7 @@ class LogDiffusionImages(Callback):
                  use_mask: bool = True,
                  t5_encoder: Optional[str] = None,
                  clip_encoder: Optional[str] = None,
+                 sigma_high: Optional[float] = None,
                  t5_latent_key: str = 'T5_LATENTS',
                  t5_mask_key: str = 'T5_ATTENTION_MASK',
                  clip_latent_key: str = 'CLIP_LATENTS',
@@ -84,6 +85,7 @@ class LogDiffusionImages(Callback):
         self.clip_mask_key = clip_mask_key
         self.clip_pooled_key = clip_pooled_key
         self.cache_dir = cache_dir
+        self.sigma_high = sigma_high
 
         # Batch prompts
         if prompts and isinstance(prompts[0], str):
@@ -198,6 +200,7 @@ class LogDiffusionImages(Callback):
                                                     rescaled_guidance=self.rescaled_guidance,
                                                     progress_bar=False,
                                                     num_inference_steps=self.num_inference_steps,
+                                                    sigma_high=self.sigma_high,
                                                     seed=self.seed)
                     else:
                         prompt_embeds = model.prepare_text_embeddings(batch[self.t5_latent_key].cuda(),
@@ -210,6 +213,7 @@ class LogDiffusionImages(Callback):
                                                     rescaled_guidance=self.rescaled_guidance,
                                                     progress_bar=False,
                                                     num_inference_steps=self.num_inference_steps,
+                                                    sigma_high=self.sigma_high,
                                                     seed=self.seed)
                     all_gen_images.append(gen_images)
                     # Clear up GPU tensors
@@ -229,6 +233,7 @@ class LogDiffusionImages(Callback):
                         rescaled_guidance=self.rescaled_guidance,
                         progress_bar=False,
                         num_inference_steps=self.num_inference_steps,
+                        sigma_high=self.sigma_high,
                         seed=self.seed)
                     all_gen_images.append(gen_images)
             gen_images = torch.cat(all_gen_images)
