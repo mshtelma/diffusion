@@ -1,4 +1,7 @@
+import base64
+from io import BytesIO
 from diffusion.inference import ModelInference
+from PIL import Image
 
 latent_mean = (-0.2000, -0.2609, -1.2588, 0.7237)
 latent_std = (4.1562, 1.8995, 3.7727, 2.5186)
@@ -6,7 +9,7 @@ noise_scheduler_params = {'rescale_betas_zero_snr': True, 'beta_start': 0.000008
 
 sdxl_model = ModelInference(model_name='precomputed_text_latent_diffusion',
                             local_checkpoint_path="/root/v2-finetune/checkpoints/ep9-ba250-rank0.pt",  # PATH TO CHECKPOINT
-                            autoencoder_path="/Volumes/shutterstock-data/checkpoints/checkpoints/v1-autoencoder.pt",  # PATH TO AUTOENCODER CHECKPOINT,
+                            autoencoder_path="/root/v2-finetune/checkpoints/v1-autoencoder.pt",  # PATH TO AUTOENCODER CHECKPOINT,
                             latent_mean=latent_mean,
                             latent_std=latent_std,
                             text_embed_dim=4096,
@@ -37,3 +40,6 @@ def generate_image(prompt, negative_prompt, guidance_scale, seed):
     images = [Image.open(BytesIO(base64.b64decode(img))) for img in generated_images]
 
     return images[0]
+
+img = generate_image("Marsian on the horseback", "", 7.0, 42)
+img.save("generated.png")
