@@ -796,7 +796,7 @@ def precomputed_text_latent_diffusion(
     if include_text_encoders:
         dtype_map = {'float32': torch.float32, 'float16': torch.float16, 'bfloat16': torch.bfloat16}
         dtype = dtype_map[text_encoder_dtype]
-        t5_tokenizer = AutoTokenizer.from_pretrained('google/t5-v1_1-xxl', cache_dir=cache_dir, local_files_only=True)
+        t5_tokenizer = AutoTokenizer.from_pretrained('google/t5-v1_1-xxl', cache_dir=cache_dir, local_files_only=False)
         clip_tokenizer = AutoTokenizer.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0',
                                                        subfolder='tokenizer',
                                                        cache_dir=cache_dir,
