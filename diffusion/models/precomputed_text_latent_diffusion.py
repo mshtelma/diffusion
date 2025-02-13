@@ -3,6 +3,7 @@
 
 """Diffusion models."""
 
+from io import BytesIO
 import math
 from typing import List, Optional, Tuple
 
@@ -468,10 +469,26 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
             dtype=self.unet.dtype,
             generator=rng_generator,
         )
+        
 
         self.inference_scheduler.set_timesteps(num_inference_steps)
         # scale the initial noise by the standard deviation required by the scheduler
         latents = latents * self.inference_scheduler.init_noise_sigma
+
+        ####
+        from PIL import Image
+        from torchvision import transforms
+
+        image = Image.open("./src.png")
+        transform = transforms.ToTensor()
+        tensor_image = transform(image).unsqueeze(0).to("cuda")
+        encoded_images = self.encode_images(tensor_image)
+        print(self.inference_scheduler.timesteps) 
+        t_start = int(0.5 * len(self.inference_scheduler.timesteps))
+        print(t_start)
+        self.inference_scheduler.set_begin_index(t_start)
+        latents = self.inference_scheduler.add_noise(encoded_images, latents, self.inference_scheduler.timesteps)
+        ####
 
         # if needed, prepare added time ids & embeddings
         if crop_params is None:
@@ -506,7 +523,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
             raise ValueError(f'guidance type must be one of CFG, RCFG, APG, or SLERP. Got {self.guidance_type}')
 
         # backward diffusion process
-        for i, t in enumerate(tqdm(self.inference_scheduler.timesteps, disable=not progress_bar)):
+        for i, t in enumerate(tqdm(self.inference_scheduler.timesteps[t_start:], disable=not progress_bar)):
             sigma = self.inference_scheduler.sigmas[i]
             if sigma_high is None or sigma >= sigma_low and sigma < sigma_high:
                 # Use guidance for these timesteps

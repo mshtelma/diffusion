@@ -41,5 +41,5 @@ def generate_image(prompt, negative_prompt, guidance_scale, seed):
 
     return images[0]
 
-img = generate_image("Marsian on the horseback", "", 7.0, 42)
+img = generate_image("Marsian on the horseback with wings", "", 7.0, 42)
 img.save("generated.png")
