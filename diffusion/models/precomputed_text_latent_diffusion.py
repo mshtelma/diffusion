@@ -484,10 +484,14 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         tensor_image = transform(image).unsqueeze(0).to("cuda")
         encoded_images = self.encode_images(tensor_image)
         print(self.inference_scheduler.timesteps) 
-        t_start = int(0.5 * len(self.inference_scheduler.timesteps))
+        t_start = int(0.8 * len(self.inference_scheduler.timesteps))
         print(t_start)
+        print(self.inference_scheduler.timesteps)
+        print(latents.shape)
         self.inference_scheduler.set_begin_index(t_start)
-        latents = self.inference_scheduler.add_noise(encoded_images, latents, self.inference_scheduler.timesteps)
+        latents = self.inference_scheduler.add_noise(encoded_images, latents, self.inference_scheduler.timesteps[t_start].unsqueeze(0))
+        print(self.inference_scheduler.timesteps)
+        print(latents.shape)
         ####
 
         # if needed, prepare added time ids & embeddings
