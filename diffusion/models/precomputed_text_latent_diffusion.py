@@ -484,7 +484,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         tensor_image = transform(image).unsqueeze(0).to("cuda")
         encoded_images = self.encode_images(tensor_image)
         print(self.inference_scheduler.timesteps) 
-        t_start = int(0.7 * len(self.inference_scheduler.timesteps))
+        t_start = int(0.5 * len(self.inference_scheduler.timesteps))
         print(t_start)
         print(self.inference_scheduler.timesteps)
         print(latents.shape)
@@ -527,7 +527,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
             raise ValueError(f'guidance type must be one of CFG, RCFG, APG, or SLERP. Got {self.guidance_type}')
 
         # backward diffusion process
-        for i, t in enumerate(tqdm(self.inference_scheduler.timesteps[t_start:], disable=not progress_bar)):
+        for i, t in enumerate(tqdm(self.inference_scheduler.timesteps[(t_start+1):], disable=not progress_bar)):
             sigma = self.inference_scheduler.sigmas[i]
             if sigma_high is None or sigma >= sigma_low and sigma < sigma_high:
                 # Use guidance for these timesteps
