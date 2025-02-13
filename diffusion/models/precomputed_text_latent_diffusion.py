@@ -462,7 +462,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         encoder_attn_mask_combined = torch.cat([neg_prompt_mask, encoder_attn_mask])
 
         # prepare for diffusion generation process
-        latents = torch.randn(
+        _latents = torch.randn(
             (batch_size, self.unet.config.in_channels, height // self.downsample_factor,
              width // self.downsample_factor),
             device=device,
@@ -473,7 +473,7 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
 
         self.inference_scheduler.set_timesteps(num_inference_steps)
         # scale the initial noise by the standard deviation required by the scheduler
-        latents = latents * self.inference_scheduler.init_noise_sigma
+        latents = _latents * self.inference_scheduler.init_noise_sigma
 
         ####
         from PIL import Image
@@ -484,12 +484,12 @@ class PrecomputedTextLatentDiffusion(ComposerModel):
         tensor_image = transform(image).unsqueeze(0).to("cuda")
         encoded_images = self.encode_images(tensor_image)
         print(self.inference_scheduler.timesteps) 
-        t_start = int(0.8 * len(self.inference_scheduler.timesteps))
+        t_start = int(0.7 * len(self.inference_scheduler.timesteps))
         print(t_start)
         print(self.inference_scheduler.timesteps)
         print(latents.shape)
         self.inference_scheduler.set_begin_index(t_start)
-        latents = self.inference_scheduler.add_noise(encoded_images, latents, self.inference_scheduler.timesteps[t_start].unsqueeze(0))
+        latents = self.inference_scheduler.add_noise(encoded_images, _latents, self.inference_scheduler.timesteps[t_start].unsqueeze(0))
         print(self.inference_scheduler.timesteps)
         print(latents.shape)
         ####
